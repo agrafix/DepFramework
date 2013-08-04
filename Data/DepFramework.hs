@@ -57,7 +57,7 @@ data FunResult a where
     FunResult :: (Result a) => a -> FunResult a
 
 data FunRes where
-    FunRes :: forall c . Result c => c -> FunRes
+    FunRes :: forall c . Result c => !c -> FunRes
 
 instance Eq FunRes where
     (FunRes a) == (FunRes b) =
@@ -89,9 +89,9 @@ instance Hashable GenRun where
         salt `hashWithSalt` hdl `hashWithSalt` (show param)
 
 data Dep
-   = DepFile FilePath
-   | DepDbTbl T.Text
-   | DepGen GenRun
+   = DepFile !FilePath
+   | DepDbTbl !T.Text
+   | DepGen !GenRun
    deriving (Show, Eq, Generic)
 
 instance Hashable Dep
@@ -130,7 +130,15 @@ recordDep dep =
 
 defineGen :: forall a b. (Param a, Result b) => T.Text -> (a -> DefM b) -> TopM (GenHandle a b)
 defineGen name fun =
-    do modify (\ts -> ts { ts_funMap = (HM.insert name (FunApp (\(FunParam p) ->
+    do exists <- gets (HM.lookup name . ts_funMap)
+       when (isJust exists) $
+            do $(logError) $ T.concat [ "Don't redefine gens! A "
+                                      , name
+                                      , " is already defined."
+                                      ]
+               error "Bye."
+
+       modify (\ts -> ts { ts_funMap = (HM.insert name (FunApp (\(FunParam p) ->
                                                                     do r <- fun p
                                                                        return $ FunResult r
                                                                )) $ ts_funMap ts) })
