@@ -2,11 +2,11 @@
 
 module Data.DepFramework
     ( defineGen, runGen, launchFramework, runRootGen
-    , publish, publishWithId
+    , publish, publishWithId, getPubId
     , getFile
-    , dbGet, dbGetBy, dbSelectList
+    , dbGet, dbGetBy, dbSelectList, dbSelectFirst
     , FrameworkCfg(..), Publishable(..), Param(..), Result(..)
-    , GenHandle
+    , GenHandle, TopM, DefM
     )
 where
 
@@ -171,9 +171,15 @@ publishWithId h = publish' (Just h)
 
 publish' :: forall b. (Result b, Publishable b) => Maybe T.Text -> b -> DefM T.Text
 publish' def res =
-    do (GenRun (GenHandle name) param) <- ask
-       let pHash = fromMaybe (hashOf $ T.concat [ name, T.pack $ show param ]) def
+    do pubId <- getPubId
+       let pHash = fromMaybe pubId def
        lift $ lift $ publishElem pHash res
+       return pHash
+
+getPubId :: DefM T.Text
+getPubId =
+    do (GenRun (GenHandle name) param) <- ask
+       let pHash = hashOf $ T.concat [ name, T.pack $ show param ]
        return pHash
 
 hashOf :: T.Text -> T.Text
@@ -309,6 +315,12 @@ dbSelectList filters opts =
        recordDep $ DepDbTbl (DB.unDBName $ DB.entityDB t)
        lift $ lift $ DB.selectList filters opts
 
+dbSelectFirst :: (DB.PersistEntity val, DB.PersistEntityBackend val ~ SqlBackend) => [DB.Filter val] -> [DB.SelectOpt val] -> DefM (Maybe (DB.Entity val))
+dbSelectFirst filters opts =
+    do let t = DB.entityDef $ dummyFromFilts filters
+       recordDep $ DepDbTbl (DB.unDBName $ DB.entityDB t)
+       lift $ lift $ DB.selectFirst filters opts
+
 dbGetBy :: (DB.PersistEntityBackend val ~ SqlBackend, DB.PersistEntity val) => DB.Unique val -> DefM (Maybe (DB.Entity val))
 dbGetBy unique =
     do let t = DB.entityDef $ dummyFromUnique unique
@@ -417,5 +429,5 @@ launchFramework cfg migration rootAction =
              loop (DepState HM.empty HM.empty Set.empty)
       loop st =
           do nst <- depRunner st
-             liftIO $ threadDelay 1000000 -- 1 sec
+             liftIO $ threadDelay (10 * 1000000) -- 10 sec
              loop nst

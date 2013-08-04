@@ -20,6 +20,7 @@ instance Publishable T.Text where
     publishElem elemId value =
         liftIO $ T.writeFile ("out/" ++ (T.unpack elemId) ++ ".txt") value
 
+test :: TopM (GenHandle () T.Text)
 test =
     defineGen "fileLoader" $ \() ->
         do someBS <- getFile "test.txt"
