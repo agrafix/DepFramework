@@ -2,10 +2,12 @@
 import Data.DepFramework
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
 import Database.Persist.MySQL
 import Database.Persist
 import Database.Persist.TH
 import Database.Persist.Sql (runSqlPool)
+import Control.Monad.Trans
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 User
@@ -13,6 +15,10 @@ User
     age Int
     deriving Show
 |]
+
+instance Publishable T.Text where
+    publishElem elemId value =
+        liftIO $ T.writeFile ("out/" ++ (T.unpack elemId) ++ ".txt") value
 
 test =
     defineGen "fileLoader" $ \() ->
@@ -46,7 +52,7 @@ main =
        main' pool
 
 main' pool =
-    launchFramework (FrameworkCfg "out") pool migrateAll $
+    launchFramework (FrameworkCfg pool) migrateAll $
     do fileG <- test
        fortytwoG <- test4
        dbG <- test5

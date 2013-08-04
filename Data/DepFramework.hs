@@ -1,11 +1,12 @@
-{-# LANGUAGE ScopedTypeVariables, GADTs, OverloadedStrings, DeriveGeneric, GeneralizedNewtypeDeriving, NoMonomorphismRestriction, DeriveDataTypeable, DoAndIfThenElse, TemplateHaskell, QuasiQuotes, TypeFamilies, FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, OverloadedStrings, DeriveGeneric, GeneralizedNewtypeDeriving, NoMonomorphismRestriction, DeriveDataTypeable, DoAndIfThenElse, TemplateHaskell, QuasiQuotes, TypeFamilies, FlexibleContexts, RankNTypes #-}
 
 module Data.DepFramework
     ( defineGen, runGen, launchFramework, runRootGen
     , publish, publishWithId
     , getFile
     , dbGet, dbGetBy, dbSelectList
-    , FrameworkCfg(..)
+    , FrameworkCfg(..), Publishable(..), Param(..), Result(..)
+    , GenHandle
     )
 where
 
@@ -36,7 +37,7 @@ import System.Posix.Types
 import System.FilePath
 
 import Database.Persist.TH
-import Database.Persist.Sql (SqlPersistT, SqlBackend, runSqlPool, runMigration, rawExecute)
+import Database.Persist.Sql (SqlPersistT, SqlBackend, ConnectionPool, runSqlPool, runMigration, rawExecute)
 import qualified Database.Persist as DB
 
 share [mkPersist sqlSettings, mkMigrate "internalsMig"] [persistLowerCase|
@@ -100,12 +101,25 @@ type DepMap = HM.HashMap Dep (Set.HashSet GenRun)
 
 class (Show a, Read a, Eq a, Typeable a) => Param a where
 instance Param ()
+instance Param Char
 instance Param T.Text
+instance Param Int
+instance Param Double
 instance Param a => Param [a]
+instance (Param a, Param b) => Param (a, b)
+instance (Param a, Param b, Param c) => Param (a, b, c)
 
 class (ToJSON a, FromJSON a, Typeable a, Eq a) => Result a where
 instance Result T.Text
+instance Result Char
+instance Result Int
+instance Result Double
 instance Result a => Result [a]
+instance (Result a, Result b) => Result (a, b)
+instance (Result a, Result b, Result c) => Result (a, b, c)
+
+class Publishable a where
+    publishElem :: T.Text -> a -> SqlM ()
 
 type ResMap = HM.HashMap GenRun FunRes
 
@@ -149,18 +163,17 @@ runGen h@(GenHandle name) param =
     do recordDep $ DepGen (GenRun h param)
        lift $ runRootGen h param
 
-publish :: forall b. (Result b) => b -> DefM T.Text
+publish :: forall b. (Result b, Publishable b) => b -> DefM T.Text
 publish = publish' Nothing
 
-publishWithId :: forall b. (Result b) => T.Text -> b -> DefM T.Text
+publishWithId :: forall b. (Result b, Publishable b) => T.Text -> b -> DefM T.Text
 publishWithId h = publish' (Just h)
 
-publish' :: forall b. (Result b) => Maybe T.Text -> b -> DefM T.Text
+publish' :: forall b. (Result b, Publishable b) => Maybe T.Text -> b -> DefM T.Text
 publish' def res =
     do (GenRun (GenHandle name) param) <- ask
-       outDir <- lift $ asks fc_outDir
        let pHash = fromMaybe (hashOf $ T.concat [ name, T.pack $ show param ]) def
-       liftIO $ BSL.writeFile (outDir </> T.unpack pHash) (encode res)
+       lift $ lift $ publishElem pHash res
        return pHash
 
 hashOf :: T.Text -> T.Text
@@ -384,17 +397,17 @@ triggerTpl tbl ty = T.concat [ "CREATE TRIGGER "
 
 data FrameworkCfg
    = FrameworkCfg
-   { fc_outDir :: FilePath
+   { fc_connPool :: ConnectionPool
    }
 
 showT = T.pack . show
 
-launchFramework cfg connPool mig rootAction =
+launchFramework cfg migration rootAction =
     runResourceT $
     runStdoutLoggingT $
-    (flip runSqlPool) connPool $
+    (flip runSqlPool) (fc_connPool cfg) $
     do runMigration internalsMig
-       runMigration mig
+       runMigration migration
        _ <- execRWST body cfg initTopState
        $(logInfo) "Framework terminated."
        return ()
