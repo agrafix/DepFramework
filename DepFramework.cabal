@@ -1,9 +1,8 @@
 name:                dep-framework
 version:             0.1.0.0
 synopsis:            Framework for build-system-like computations
--- description:         
--- license:             
-license-file:        LICENSE
+description:         Track data-dependencies of computations and reevaluate them when needed
+license:             AllRightsReserved
 author:              Alexander Thiemann <mail@agrafix.net>
 maintainer:          mail@agrafix.net
 copyright:           (c) 2013 by Alexander Thiemann
