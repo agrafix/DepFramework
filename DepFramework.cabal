@@ -1,4 +1,4 @@
-name:                GenFramework
+name:                dep-framework
 version:             0.1.0.0
 synopsis:            Framework for build-system-like computations
 -- description:         
